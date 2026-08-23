@@ -155,6 +155,8 @@ pub struct WorkNode {
     pub finished_unix: u64,
     /// Sole open-content field (writer-owned length).
     pub summary: String,
+    /// Soft hide. Only legal on a terminal node. Not a status.
+    pub archived: bool,
 }
 
 
@@ -221,7 +223,24 @@ impl WorkGraph {
     }
 
     pub fn list(&self) -> Vec<&WorkNode> {
-        let mut v: Vec<_> = self.nodes.values().collect();
+        self.list_view(true, true)
+    }
+
+    /// Default live view hides terminal and archived nodes.
+    pub fn list_view(&self, show_terminal: bool, show_archived: bool) -> Vec<&WorkNode> {
+        let mut v: Vec<_> = self
+            .nodes
+            .values()
+            .filter(|n| {
+                if n.archived {
+                    show_archived
+                } else if n.status.is_terminal() {
+                    show_terminal
+                } else {
+                    true
+                }
+            })
+            .collect();
         v.sort_by(|a, b| {
             b.updated_unix
                 .cmp(&a.updated_unix)
@@ -249,14 +268,17 @@ impl WorkGraph {
             return;
         }
         let overflow = self.nodes.len() - MAX_WORK_NODES;
-        let mut terminal: Vec<(WorkId, u64)> = self
+        let mut terminal: Vec<(WorkId, u8, u64)> = self
             .nodes
             .iter()
             .filter(|(_, n)| n.status.is_terminal())
-            .map(|(k, n)| (*k, n.finished_unix.max(n.updated_unix)))
+            .map(|(k, n)| {
+                let archived_first = if n.archived { 0 } else { 1 };
+                (*k, archived_first, n.finished_unix.max(n.updated_unix))
+            })
             .collect();
-        terminal.sort_by_key(|(_, t)| *t);
-        for (id, _) in terminal.into_iter().take(overflow) {
+        terminal.sort_by_key(|(_, arch, t)| (*arch, *t));
+        for (id, _, _) in terminal.into_iter().take(overflow) {
             self.nodes.remove(&id);
         }
     }
@@ -289,6 +311,7 @@ impl WorkGraph {
             updated_unix: now,
             finished_unix: 0,
             summary: String::new(),
+            archived: false,
         });
         if entry.status.is_terminal() {
             // Sticky terminal: reject reopen/status forge (client sees error).
@@ -566,6 +589,45 @@ impl WorkGraph {
         Ok(())
     }
 
+    pub fn archive(&mut self, id: WorkId, actor: WorkId) -> Result<(), String> {
+        if id.is_zero() {
+            return Err("archive: zero id".into());
+        }
+        let node = self
+            .nodes
+            .get_mut(&id)
+            .ok_or_else(|| "archive: not found".to_string())?;
+        if !node.status.is_terminal() {
+            return Err("archive: not terminal".into());
+        }
+        if node.archived {
+            return Ok(());
+        }
+        node.archived = true;
+        node.updated_unix = Self::now();
+        node.cas_gen = node.cas_gen.saturating_add(1);
+        self.push_ledger(id, actor, "archive");
+        Ok(())
+    }
+
+    pub fn unarchive(&mut self, id: WorkId, actor: WorkId) -> Result<(), String> {
+        if id.is_zero() {
+            return Err("unarchive: zero id".into());
+        }
+        let node = self
+            .nodes
+            .get_mut(&id)
+            .ok_or_else(|| "unarchive: not found".to_string())?;
+        if !node.archived {
+            return Ok(());
+        }
+        node.archived = false;
+        node.updated_unix = Self::now();
+        node.cas_gen = node.cas_gen.saturating_add(1);
+        self.push_ledger(id, actor, "unarchive");
+        Ok(())
+    }
+
     pub fn verify(&self) -> Result<(), String> {
         for (id, n) in &self.nodes {
             for d in &n.deps {
@@ -666,6 +728,8 @@ struct WorkNodeSnap {
     updated_unix: u64,
     finished_unix: u64,
     summary: String,
+    #[serde(default)]
+    archived: bool,
 }
 
 impl WorkNodeSnap {
@@ -683,6 +747,7 @@ impl WorkNodeSnap {
             updated_unix: n.updated_unix,
             finished_unix: n.finished_unix,
             summary: n.summary.clone(),
+            archived: n.archived,
         }
     }
 
@@ -705,6 +770,7 @@ impl WorkNodeSnap {
             updated_unix: self.updated_unix,
             finished_unix: self.finished_unix,
             summary: self.summary,
+            archived: self.archived,
         })
     }
 }
@@ -946,6 +1012,46 @@ mod tests {
         assert_eq!(n.kind, WorkKind::Task);
         assert_eq!(n.summary, "done on disk");
         assert!(n.finished_unix > 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn archive_requires_terminal_and_hides_from_live_view() {
+        let mut g = WorkGraph::default();
+        let a = id(7);
+        g.upsert(
+            a,
+            WorkKind::Task,
+            WorkStatus::Ready,
+            WorkRole::Unset,
+            WorkId::ZERO,
+            id(9),
+            "live",
+        )
+        .unwrap();
+        assert_eq!(g.archive(a, id(9)).unwrap_err(), "archive: not terminal");
+        g.complete(a, WorkStatus::Done, "done", id(9)).unwrap();
+        assert_eq!(g.list_view(false, false).len(), 0);
+        assert_eq!(g.list_view(true, false).len(), 1);
+        g.archive(a, id(9)).unwrap();
+        assert!(g.get(a).unwrap().archived);
+        assert!(g.list_view(true, false).is_empty());
+        assert_eq!(g.list_view(true, true).len(), 1);
+        g.unarchive(a, id(9)).unwrap();
+        assert!(!g.get(a).unwrap().archived);
+        assert_eq!(g.get(a).unwrap().status, WorkStatus::Done);
+
+        let dir = std::env::temp_dir().join(format!("claimdag-arch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        g.archive(a, id(9)).unwrap();
+        g.save_dir(&dir).unwrap();
+        let loaded = WorkGraph::load_dir(&dir);
+        assert!(loaded.get(a).unwrap().archived);
+        let raw = std::fs::read_to_string(dir.join(SNAP_FILE)).unwrap();
+        let stripped = raw.replace("\"archived\": true", "").replace("\"archived\":true", "");
+        std::fs::write(dir.join(SNAP_FILE), stripped).unwrap();
+        let old = WorkGraph::load_dir(&dir);
+        assert!(!old.get(a).unwrap().archived);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

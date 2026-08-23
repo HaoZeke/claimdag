@@ -17,6 +17,7 @@ from claimdag_tui.app import (
     load_nodes,
     main,
     parent_tree,
+    visible_nodes,
 )
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -126,6 +127,7 @@ def test_claim_complete_unlink_call_cli(monkeypatch, tmp_path) -> None:
             tree.move_cursor(child)
             await pilot.press("c")
             await pilot.press("d")
+            await pilot.press("a")
             await pilot.press("u")
 
     asyncio.run(run())
@@ -135,4 +137,15 @@ def test_claim_complete_unlink_call_cli(monkeypatch, tmp_path) -> None:
     actor = "11111111111111111111111111111111"
     assert f"--dir {tmp_path} claim {child_id} --assignee {actor}" in recorded
     assert f"--dir {tmp_path} complete {child_id} --status done --actor {actor}" in recorded
+    assert f"--dir {tmp_path} archive {child_id} --actor {actor}" in recorded
     assert f"--dir {tmp_path} unlink {parent_id} {child_id} --actor {actor}" in recorded
+
+
+def test_visible_nodes_hides_terminal_and_archived() -> None:
+    live = {"id": "aa", "status": "todo", "summary": "live"}
+    done = {"id": "bb", "status": "done", "summary": "done"}
+    archived = {"id": "cc", "status": "done", "archived": True, "summary": "old"}
+    nodes = [live, done, archived]
+    assert visible_nodes(nodes, show_terminal=False, show_archived=False) == [live]
+    assert visible_nodes(nodes, show_terminal=True, show_archived=False) == [live, done]
+    assert visible_nodes(nodes, show_terminal=True, show_archived=True) == nodes

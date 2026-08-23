@@ -62,13 +62,35 @@ def node_id(node: dict[str, Any]) -> str:
     return str(node.get("id") or "")
 
 
+def visible_nodes(
+    nodes: list[dict[str, Any]],
+    *,
+    show_terminal: bool,
+    show_archived: bool,
+) -> list[dict[str, Any]]:
+    terminal = {"done", "failed", "cancelled"}
+    out: list[dict[str, Any]] = []
+    for node in nodes:
+        archived = bool(node.get("archived"))
+        status = str(node.get("status") or "")
+        if archived:
+            if show_archived:
+                out.append(node)
+            continue
+        if status in terminal and not show_terminal:
+            continue
+        out.append(node)
+    return out
+
+
 def node_label(node: dict[str, Any]) -> str:
     nid = node_id(node)
     status = str(node.get("status") or "?")
     summary = str(node.get("summary") or "").strip() or nid[:8]
     deps = node.get("deps") or []
     extra = f"  deps={len(deps)}" if isinstance(deps, list) and deps else ""
-    return f"{status}  {summary}{extra}"
+    flag = "  archived" if node.get("archived") else ""
+    return f"{status}  {summary}{extra}{flag}"
 
 
 def parent_tree(
@@ -118,6 +140,9 @@ class WorkGraphApp(App[None]):
     BINDINGS = [
         Binding("c", "claim", "Claim"),
         Binding("d", "complete", "Done"),
+        Binding("a", "archive", "Archive"),
+        Binding("h", "toggle_terminal", "Show done"),
+        Binding("A", "toggle_archived", "Show archived"),
         Binding("u", "unlink", "Unlink"),
         Binding("r", "refresh", "Refresh"),
         Binding("q", "quit", "Quit"),
@@ -127,6 +152,8 @@ class WorkGraphApp(App[None]):
         super().__init__()
         self.directory = directory or default_dir()
         self.actor = default_actor()
+        self.show_terminal = False
+        self.show_archived = False
 
     def compose(self) -> ComposeResult:
         self.sub_title = str(self.directory)
@@ -141,7 +168,13 @@ class WorkGraphApp(App[None]):
         tree = self.query_one(Tree)
         tree.clear()
         tree.root.expand()
-        by_id, children, roots = parent_tree(load_nodes(self.directory))
+        by_id, children, roots = parent_tree(
+            visible_nodes(
+                load_nodes(self.directory),
+                show_terminal=self.show_terminal,
+                show_archived=self.show_archived,
+            )
+        )
         if not roots:
             tree.root.add_leaf("(empty)")
             return
@@ -204,6 +237,25 @@ class WorkGraphApp(App[None]):
         self.notify(err or "done")
         self.refresh_tree()
 
+    def action_archive(self) -> None:
+        nid = self._selected_id()
+        if not nid:
+            self.notify("select a node")
+            return
+        err = self._run_cli(["archive", nid, "--actor", self.actor])
+        self.notify(err or "archived")
+        self.refresh_tree()
+
+    def action_toggle_terminal(self) -> None:
+        self.show_terminal = not self.show_terminal
+        self.notify("show done" if self.show_terminal else "hide done")
+        self.refresh_tree()
+
+    def action_toggle_archived(self) -> None:
+        self.show_archived = not self.show_archived
+        self.notify("show archived" if self.show_archived else "hide archived")
+        self.refresh_tree()
+
     def action_unlink(self) -> None:
         nid = self._selected_id()
         if not nid:
@@ -233,10 +285,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print the parent tree as text and exit",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="With --dump, include terminal and archived nodes",
+    )
     args = parser.parse_args(argv)
     directory = args.dir or default_dir()
     if args.dump:
-        sys.stdout.write(dump_forest(load_nodes(directory)))
+        nodes = load_nodes(directory)
+        if not args.all:
+            nodes = visible_nodes(nodes, show_terminal=False, show_archived=False)
+        sys.stdout.write(dump_forest(nodes))
         return 0
     WorkGraphApp(directory=directory).run()
     return 0

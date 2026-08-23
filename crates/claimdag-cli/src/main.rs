@@ -17,8 +17,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// List nodes in work.json, newest first.
-    List,
+    /// List nodes in work.json, newest first. Default is live work only.
+    List {
+        /// Include non-archived terminal nodes.
+        #[arg(long)]
+        terminal: bool,
+        /// Include archived nodes.
+        #[arg(long)]
+        archived: bool,
+        /// Every node, including archived terminals.
+        #[arg(long)]
+        all: bool,
+    },
     /// Print one node by 32-hex id.
     Get { id: String },
     /// Create or update a node. Omit --id to mint.
@@ -71,6 +81,18 @@ enum Cmd {
         #[arg(long, default_value = "00000000000000000000000000000000")]
         actor: String,
     },
+    /// Soft-hide a terminal node. Not a delete.
+    Archive {
+        id: String,
+        #[arg(long, default_value = "00000000000000000000000000000000")]
+        actor: String,
+    },
+    /// Clear the archive flag. Status stays terminal.
+    Unarchive {
+        id: String,
+        #[arg(long, default_value = "00000000000000000000000000000000")]
+        actor: String,
+    },
 }
 
 fn parse_id(s: &str) -> Result<WorkId, String> {
@@ -78,12 +100,14 @@ fn parse_id(s: &str) -> Result<WorkId, String> {
 }
 
 fn print_list_line(n: &WorkNode) {
+    let flag = if n.archived { "  archived" } else { "" };
     println!(
-        "{}  {}  {}  gen={}  {}",
+        "{}  {}  {}  gen={}{}  {}",
         n.id.to_hex(),
         n.status.as_str(),
         n.kind.as_str(),
         n.cas_gen,
+        flag,
         n.summary
     );
 }
@@ -123,8 +147,17 @@ fn run() -> Result<(), String> {
     let cli = Cli::parse();
     let mut g = WorkGraph::load_dir(&cli.dir);
     match cli.cmd {
-        Cmd::List => {
-            for n in g.list() {
+        Cmd::List {
+            terminal,
+            archived,
+            all,
+        } => {
+            let (show_terminal, show_archived) = if all {
+                (true, true)
+            } else {
+                (terminal, archived)
+            };
+            for n in g.list_view(show_terminal, show_archived) {
                 print_list_line(n);
             }
         }
@@ -203,6 +236,18 @@ fn run() -> Result<(), String> {
             g.unlink_dep(parent, child, parse_id(&actor)?)?;
             g.save_dir(&cli.dir)?;
             println!("{}  {}", parent.to_hex(), child.to_hex());
+        }
+        Cmd::Archive { id, actor } => {
+            let id = parse_id(&id)?;
+            g.archive(id, parse_id(&actor)?)?;
+            g.save_dir(&cli.dir)?;
+            println!("{}  archived", id.to_hex());
+        }
+        Cmd::Unarchive { id, actor } => {
+            let id = parse_id(&id)?;
+            g.unarchive(id, parse_id(&actor)?)?;
+            g.save_dir(&cli.dir)?;
+            println!("{}  live", id.to_hex());
         }
     }
     Ok(())
