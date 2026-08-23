@@ -1,0 +1,18 @@
+[package]
+name = "claimdag-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "claimdag command line over a work.json directory"
+readme.workspace = true
+
+[[bin]]
+name = "claimdag"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+claimdag.workspace = true
