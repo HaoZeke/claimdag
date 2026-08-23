@@ -161,7 +161,11 @@ fn run() -> Result<(), String> {
             assignee,
             gen,
         } => {
-            let cas = g.claim(parse_id(&id)?, parse_id(&assignee)?, gen)?;
+            let expected = match gen {
+                None | Some(0) => None,
+                Some(g) => Some(g),
+            };
+            let cas = g.claim(parse_id(&id)?, parse_id(&assignee)?, expected)?;
             g.save_dir(&cli.dir)?;
             println!("gen={cas}");
         }
