@@ -1024,4 +1024,56 @@ mod tests {
         assert!(g.get(b).unwrap().deps.is_empty());
         assert_eq!(g.get(b).unwrap().status, WorkStatus::Ready);
     }
+
+    #[test]
+    fn sticky_terminal_rejects_reopen() {
+        let mut g = WorkGraph::default();
+        let a = id(1);
+        upsert_ready(&mut g, a, "A");
+        g.complete(a, WorkStatus::Done, "done", id(9)).unwrap();
+        assert_eq!(g.get(a).unwrap().status, WorkStatus::Done);
+        let err = g
+            .upsert(
+                a,
+                WorkKind::Task,
+                WorkStatus::Ready,
+                WorkRole::Unset,
+                WorkId::ZERO,
+                id(9),
+                "reopen",
+            )
+            .unwrap_err();
+        assert_eq!(err, "upsert: node is terminal");
+        let after_upsert = g.get(a).unwrap();
+        assert_eq!(after_upsert.status, WorkStatus::Done);
+        assert_eq!(after_upsert.summary, "done");
+        assert_eq!(g.claim(a, id(10), None).unwrap_err(), "claim: status done");
+        g.complete(a, WorkStatus::Failed, "still done", id(9))
+            .unwrap();
+        let after_complete = g.get(a).unwrap();
+        assert_eq!(after_complete.status, WorkStatus::Done);
+        assert_eq!(after_complete.summary, "still done");
+
+        let b = id(2);
+        upsert_ready(&mut g, b, "B");
+        g.complete(b, WorkStatus::Cancelled, "nope", id(9)).unwrap();
+        assert_eq!(
+            g.upsert(
+                b,
+                WorkKind::Task,
+                WorkStatus::Todo,
+                WorkRole::Unset,
+                WorkId::ZERO,
+                id(9),
+                "",
+            )
+            .unwrap_err(),
+            "upsert: node is terminal"
+        );
+        assert_eq!(g.get(b).unwrap().status, WorkStatus::Cancelled);
+        assert_eq!(
+            g.claim(b, id(10), None).unwrap_err(),
+            "claim: status cancelled"
+        );
+    }
 }
