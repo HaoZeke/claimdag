@@ -44,3 +44,7 @@ rustc-ice-*.txt
 
 # Log files created by default by the nohup command
 nohup.out
+
+__pycache__/
+.venv/
+*.pyc
