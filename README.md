@@ -6,14 +6,21 @@ Snapshot is `work.json`.
 ```console
 $ cargo add claimdag
 $ cargo install claimdag-cli
+$ claimdag --help
 $ claimdag --dir /var/lib/seat upsert --summary "land the adapter"
 $ claimdag --dir /var/lib/seat list
+$ claimdag --dir /var/lib/seat get <id>
+$ claimdag --dir /var/lib/seat claim <id> --assignee <actor>
+$ claimdag --dir /var/lib/seat complete <id>
+$ claimdag --dir /var/lib/seat link <parent> <child>
+$ claimdag --dir /var/lib/seat unlink <parent> <child>
 ```
 
-Ids are 128-bit (`WorkId`, 32 hex chars). Kind, status, and role are closed
-enums. Summary is the only open text field. `claim` is compare-and-swap on
-`gen` (`0` means ignore). Terminal status is sticky. `link` is a boolean
-hard dependency; `unlink` drops it.
+Commands read and write `$dir/work.json`. Ids are 128-bit (`WorkId`, 32 hex
+chars). Kind, status, and role are closed enums. Summary is the only open
+text field. `claim` is compare-and-swap on `gen` (omit `--gen` to ignore).
+Terminal status is sticky. `link` is a boolean hard dependency; `unlink`
+drops it. `upsert` accepts `--role` and `--parent`.
 
 ```toml
 claimdag = { git = "https://github.com/HaoZeke/claimdag", tag = "v0.1.0" }

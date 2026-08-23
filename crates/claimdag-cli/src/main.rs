@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use claimdag::{WorkGraph, WorkId, WorkKind, WorkRole, WorkStatus};
+use claimdag::{WorkGraph, WorkId, WorkKind, WorkNode, WorkRole, WorkStatus};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -17,8 +17,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// List nodes in work.json, newest first.
     List,
+    /// Print one node by 32-hex id.
     Get { id: String },
+    /// Create or update a node. Omit --id to mint.
     Upsert {
         #[arg(long)]
         id: Option<String>,
@@ -26,11 +29,17 @@ enum Cmd {
         kind: String,
         #[arg(long, default_value = "todo")]
         status: String,
+        #[arg(long, default_value = "unset")]
+        role: String,
+        /// Parent work id (32 hex). Zero means unset.
+        #[arg(long, default_value = "00000000000000000000000000000000")]
+        parent: String,
         #[arg(long, default_value = "")]
         summary: String,
         #[arg(long, default_value = "00000000000000000000000000000000")]
         actor: String,
     },
+    /// Compare-and-swap claim. Omit --gen to ignore generation.
     Claim {
         id: String,
         #[arg(long)]
@@ -38,6 +47,7 @@ enum Cmd {
         #[arg(long)]
         gen: Option<u64>,
     },
+    /// Mark a node terminal (done, failed, or cancelled).
     Complete {
         id: String,
         #[arg(long, default_value = "done")]
@@ -47,12 +57,14 @@ enum Cmd {
         #[arg(long, default_value = "00000000000000000000000000000000")]
         actor: String,
     },
+    /// Add a boolean hard dependency (parent before child).
     Link {
         parent: String,
         child: String,
         #[arg(long, default_value = "00000000000000000000000000000000")]
         actor: String,
     },
+    /// Drop a boolean hard dependency. Missing edge is ok.
     Unlink {
         parent: String,
         child: String,
@@ -63,6 +75,41 @@ enum Cmd {
 
 fn parse_id(s: &str) -> Result<WorkId, String> {
     WorkId::from_hex(s).ok_or_else(|| format!("bad id {s}"))
+}
+
+fn print_list_line(n: &WorkNode) {
+    println!(
+        "{}  {}  {}  gen={}  {}",
+        n.id.to_hex(),
+        n.status.as_str(),
+        n.kind.as_str(),
+        n.cas_gen,
+        n.summary
+    );
+}
+
+fn print_get(n: &WorkNode) {
+    let deps = if n.deps.is_empty() {
+        "-".to_string()
+    } else {
+        n.deps
+            .iter()
+            .map(|d| d.to_hex())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    println!(
+        "{}  {}  {}  {}  gen={}  assignee={}  parent={}  {}",
+        n.id.to_hex(),
+        n.status.as_str(),
+        n.kind.as_str(),
+        n.role.as_str(),
+        n.cas_gen,
+        n.assignee.to_hex(),
+        n.parent.to_hex(),
+        n.summary
+    );
+    println!("deps  {deps}");
 }
 
 fn main() {
@@ -78,31 +125,20 @@ fn run() -> Result<(), String> {
     match cli.cmd {
         Cmd::List => {
             for n in g.list() {
-                println!(
-                    "{}  {}  {}  {}",
-                    n.id.to_hex(),
-                    n.status.as_str(),
-                    n.kind.as_str(),
-                    n.summary
-                );
+                print_list_line(n);
             }
         }
         Cmd::Get { id } => {
             let id = parse_id(&id)?;
             let n = g.get(id).ok_or("not found")?;
-            println!(
-                "{}  {}  {}  gen={}  {}",
-                n.id.to_hex(),
-                n.status.as_str(),
-                n.kind.as_str(),
-                n.cas_gen,
-                n.summary
-            );
+            print_get(n);
         }
         Cmd::Upsert {
             id,
             kind,
             status,
+            role,
+            parent,
             summary,
             actor,
         } => {
@@ -110,10 +146,13 @@ fn run() -> Result<(), String> {
                 Some(s) => parse_id(&s)?,
                 None => WorkId::ZERO,
             };
-            let kind = WorkKind::parse_str(&kind).ok_or("bad kind")?;
-            let status = WorkStatus::parse_str(&status).ok_or("bad status")?;
+            let kind = WorkKind::parse_str(&kind).ok_or_else(|| format!("bad kind {kind}"))?;
+            let status =
+                WorkStatus::parse_str(&status).ok_or_else(|| format!("bad status {status}"))?;
+            let role = WorkRole::parse_str(&role).ok_or_else(|| format!("bad role {role}"))?;
+            let parent = parse_id(&parent)?;
             let actor = parse_id(&actor)?;
-            let out = g.upsert(wid, kind, status, WorkRole::Unset, WorkId::ZERO, actor, &summary)?;
+            let out = g.upsert(wid, kind, status, role, parent, actor, &summary)?;
             g.save_dir(&cli.dir)?;
             println!("{}", out.to_hex());
         }
@@ -132,25 +171,34 @@ fn run() -> Result<(), String> {
             summary,
             actor,
         } => {
-            let status = WorkStatus::parse_str(&status).ok_or("bad status")?;
-            g.complete(parse_id(&id)?, status, &summary, parse_id(&actor)?)?;
+            let status =
+                WorkStatus::parse_str(&status).ok_or_else(|| format!("bad status {status}"))?;
+            let id = parse_id(&id)?;
+            g.complete(id, status, &summary, parse_id(&actor)?)?;
             g.save_dir(&cli.dir)?;
+            println!("{}  {}", id.to_hex(), status.as_str());
         }
         Cmd::Link {
             parent,
             child,
             actor,
         } => {
-            g.link_dep(parse_id(&parent)?, parse_id(&child)?, parse_id(&actor)?)?;
+            let parent = parse_id(&parent)?;
+            let child = parse_id(&child)?;
+            g.link_dep(parent, child, parse_id(&actor)?)?;
             g.save_dir(&cli.dir)?;
+            println!("{}  {}", parent.to_hex(), child.to_hex());
         }
         Cmd::Unlink {
             parent,
             child,
             actor,
         } => {
-            g.unlink_dep(parse_id(&parent)?, parse_id(&child)?, parse_id(&actor)?)?;
+            let parent = parse_id(&parent)?;
+            let child = parse_id(&child)?;
+            g.unlink_dep(parent, child, parse_id(&actor)?)?;
             g.save_dir(&cli.dir)?;
+            println!("{}  {}", parent.to_hex(), child.to_hex());
         }
     }
     Ok(())
