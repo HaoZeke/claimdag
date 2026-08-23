@@ -16,9 +16,12 @@ def test_shared_snippet_is_storm_not_night() -> None:
 
 def test_widget_css_is_layout_not_pad() -> None:
     widgets = (TUI_DIR / "storm.tcss").read_text(encoding="utf-8")
+    shared = (TUI_DIR / "tokyo_night_storm.tcss").read_text(encoding="utf-8")
     assert "height: 1fr" in widgets
-    assert "layout: vertical" in widgets
+    assert "layout: vertical" in shared
     assert "Tree" in widgets
     assert "#24283b" in widgets
+    assert "$panel" not in shared
+    assert "$panel" not in widgets
 
 
