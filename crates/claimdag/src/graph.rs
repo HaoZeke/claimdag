@@ -998,5 +998,30 @@ mod tests {
         g.unlink_dep(a, b, id(9)).unwrap();
         assert!(g.get(b).unwrap().deps.is_empty());
         assert_eq!(g.get(b).unwrap().status, WorkStatus::Ready);
+        // Missing edge is Ok; recompute_ready stays Ready.
+        g.unlink_dep(a, b, id(9)).unwrap();
+        assert!(g.get(b).unwrap().deps.is_empty());
+        assert_eq!(g.get(b).unwrap().status, WorkStatus::Ready);
+    }
+
+    #[test]
+    fn unlink_missing_edge_is_ok() {
+        let mut g = WorkGraph::default();
+        let a = id(1);
+        let b = id(2);
+        upsert_ready(&mut g, a, "A");
+        g.upsert(
+            b,
+            WorkKind::Task,
+            WorkStatus::Todo,
+            WorkRole::Unset,
+            WorkId::ZERO,
+            id(9),
+            "B",
+        )
+        .unwrap();
+        g.unlink_dep(a, b, id(9)).unwrap();
+        assert!(g.get(b).unwrap().deps.is_empty());
+        assert_eq!(g.get(b).unwrap().status, WorkStatus::Ready);
     }
 }
