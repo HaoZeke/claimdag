@@ -1,4 +1,10 @@
 /* WorkGraph widgets. Shared tokens: tokyo_night_storm.tcss */
+/* Do not bind $panel: Textual default CSS uses hatch: right $panel. */
+
+Screen {
+    layout: vertical;
+}
+
 Tree {
     height: 1fr;
     width: 1fr;
@@ -13,4 +19,8 @@ Tree > .tree--cursor {
 
 Tree > .tree--highlight {
     text-style: bold;
+}
+
+Tree > .tree--guides {
+    color: #7aa2f7;
 }
