@@ -62,8 +62,6 @@ impl WorkStatus {
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Done | Self::Failed | Self::Cancelled)
     }
-
-
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,8 +100,6 @@ impl WorkRole {
             _ => None,
         }
     }
-
-
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,8 +132,6 @@ impl WorkKind {
             _ => None,
         }
     }
-
-
 }
 
 #[derive(Debug, Clone)]
@@ -158,7 +152,6 @@ pub struct WorkNode {
     /// Soft hide. Only legal on a terminal node. Not a status.
     pub archived: bool,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct WorkLedgerEntry {
@@ -208,14 +201,7 @@ impl WorkGraph {
             WorkKind::Molecule => "work-molecule",
             WorkKind::Unset => "work",
         };
-        mint_work_id(
-            parent,
-            WorkId::ZERO,
-            role,
-            summary,
-            self.mint_seq,
-            &salt,
-        )
+        mint_work_id(parent, WorkId::ZERO, role, summary, self.mint_seq, &salt)
     }
 
     pub fn get(&self, id: WorkId) -> Option<&WorkNode> {
@@ -323,11 +309,13 @@ impl WorkGraph {
             WorkStatus::Todo | WorkStatus::Ready | WorkStatus::Blocked => {
                 entry.status = status;
             }
-            WorkStatus::Claimed | WorkStatus::Running | WorkStatus::Done
-            | WorkStatus::Failed | WorkStatus::Cancelled => {
+            WorkStatus::Claimed
+            | WorkStatus::Running
+            | WorkStatus::Done
+            | WorkStatus::Failed
+            | WorkStatus::Cancelled => {
                 return Err(
-                    "upsert: status claim/run/terminal requires claimWork or completeWork"
-                        .into(),
+                    "upsert: status claim/run/terminal requires claimWork or completeWork".into(),
                 );
             }
         }
@@ -350,12 +338,7 @@ impl WorkGraph {
         Ok(wid)
     }
 
-    pub fn link_dep(
-        &mut self,
-        parent: WorkId,
-        child: WorkId,
-        actor: WorkId,
-    ) -> Result<(), String> {
+    pub fn link_dep(&mut self, parent: WorkId, child: WorkId, actor: WorkId) -> Result<(), String> {
         if parent.is_zero() || child.is_zero() {
             return Err("link: zero id".into());
         }
@@ -632,7 +615,11 @@ impl WorkGraph {
         for (id, n) in &self.nodes {
             for d in &n.deps {
                 if !self.nodes.contains_key(d) {
-                    return Err(format!("verify: {} deps missing {}", id.to_hex(), d.to_hex()));
+                    return Err(format!(
+                        "verify: {} deps missing {}",
+                        id.to_hex(),
+                        d.to_hex()
+                    ));
                 }
             }
             let mut stack = n.deps.clone();
@@ -780,7 +767,10 @@ mod tests {
     use super::*;
 
     fn id(n: u64) -> WorkId {
-        WorkId { hi: n, lo: n.wrapping_mul(3) }
+        WorkId {
+            hi: n,
+            lo: n.wrapping_mul(3),
+        }
     }
 
     #[test]
@@ -932,10 +922,26 @@ mod tests {
         let mut g = WorkGraph::default();
         let a = id(1);
         let b = id(2);
-        g.upsert(a, WorkKind::Task, WorkStatus::Todo, WorkRole::Unset, WorkId::ZERO, id(9), "")
-            .unwrap();
-        g.upsert(b, WorkKind::Task, WorkStatus::Todo, WorkRole::Unset, WorkId::ZERO, id(9), "")
-            .unwrap();
+        g.upsert(
+            a,
+            WorkKind::Task,
+            WorkStatus::Todo,
+            WorkRole::Unset,
+            WorkId::ZERO,
+            id(9),
+            "",
+        )
+        .unwrap();
+        g.upsert(
+            b,
+            WorkKind::Task,
+            WorkStatus::Todo,
+            WorkRole::Unset,
+            WorkId::ZERO,
+            id(9),
+            "",
+        )
+        .unwrap();
         g.link_dep(a, b, id(9)).unwrap();
         assert!(g.link_dep(b, a, id(9)).is_err());
     }
@@ -1048,8 +1054,11 @@ mod tests {
         let loaded = WorkGraph::load_dir(&dir);
         assert!(loaded.get(a).unwrap().archived);
         let raw = std::fs::read_to_string(dir.join(SNAP_FILE)).unwrap();
-        let stripped = raw.replace("\"archived\": true", "").replace("\"archived\":true", "");
-        std::fs::write(dir.join(SNAP_FILE), stripped).unwrap();
+        let mut val: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        for node in val["nodes"].as_array_mut().unwrap() {
+            node.as_object_mut().unwrap().remove("archived");
+        }
+        std::fs::write(dir.join(SNAP_FILE), serde_json::to_vec_pretty(&val).unwrap()).unwrap();
         let old = WorkGraph::load_dir(&dir);
         assert!(!old.get(a).unwrap().archived);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1057,7 +1066,8 @@ mod tests {
 
     #[test]
     fn load_dir_missing_is_empty() {
-        let dir = std::env::temp_dir().join(format!("claimdag-work-missing-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("claimdag-work-missing-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let g = WorkGraph::load_dir(&dir);

@@ -189,11 +189,7 @@ fn run() -> Result<(), String> {
             g.save_dir(&cli.dir)?;
             println!("{}", out.to_hex());
         }
-        Cmd::Claim {
-            id,
-            assignee,
-            gen,
-        } => {
+        Cmd::Claim { id, assignee, gen } => {
             let expected = match gen {
                 None | Some(0) => None,
                 Some(g) => Some(g),
