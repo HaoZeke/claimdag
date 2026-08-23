@@ -30,14 +30,8 @@ def default_dir() -> Path:
     raw = os.environ.get("CLAIMDAG_DIR")
     if raw:
         return Path(raw)
-    state = (os.environ.get("GROKOS_STATE_DIR") or "").strip()
-    if state:
-        return Path(state)
-    xdg = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
-    grokos = xdg / "grokos"
-    if (grokos / "work.bin").is_file() or (grokos / "work.json").is_file():
-        return grokos
-    return xdg / "claimdag"
+    xdg = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    return Path(xdg) / "claimdag"
 
 
 def default_actor() -> str:
