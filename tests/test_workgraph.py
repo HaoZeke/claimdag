@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 
@@ -84,7 +85,10 @@ def test_storm_tokens() -> None:
     assert "height: 1fr" in widgets
 
 
-def test_app_tree_renders_fixture() -> None:
+def test_app_tree_renders_fixture(monkeypatch) -> None:
+    raw = json.loads((FIXTURE_DIR / "work.json").read_text(encoding="utf-8"))
+    nodes = raw["nodes"]
+    monkeypatch.setattr("claimdag_tui.app.load_nodes", lambda _d: nodes)
     app = WorkGraphApp(directory=FIXTURE_DIR)
 
     async def run() -> list[str]:
@@ -103,8 +107,6 @@ def test_app_tree_renders_fixture() -> None:
 
 
 def test_claim_complete_unlink_call_cli(monkeypatch, tmp_path) -> None:
-    work = tmp_path / "work.json"
-    work.write_text((FIXTURE_DIR / "work.json").read_text(encoding="utf-8"))
     stub = tmp_path / "claimdag"
     log = tmp_path / "cli.log"
     stub.write_text(

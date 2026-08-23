@@ -10,8 +10,6 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
 xxhash-rust.workspace = true
 capnp.workspace = true
 memmap2.workspace = true

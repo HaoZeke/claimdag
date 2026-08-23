@@ -7,7 +7,7 @@
 **CAS claim and complete on a DAG. One writer. Unpacked Cap'n on disk.**
 
 The host process is the sole mutator. Snapshot is `work.bin` (mmap).
-`work.json` is load-only v0. This crate has no RPC surface.
+This crate has no RPC surface.
 
 ```console
 $ cargo add claimdag
@@ -24,7 +24,7 @@ $ claimdag --dir /var/lib/seat link <parent> <child>
 ## Law
 
 - One in-process graph. The host is the sole mutator.
-- Snapshot is unpacked Cap'n `work.bin`. Hosts mmap it. JSON is v0 only.
+- Snapshot is unpacked Cap'n `work.bin`. Hosts mmap it.
 - Ids are 128-bit `WorkId`. Kind, status, and role are closed enums.
 - Summary is the only open text field.
 - `claim` is CAS on `gen` (omit `--gen` to ignore). Terminal is sticky.
@@ -33,7 +33,7 @@ $ claimdag --dir /var/lib/seat link <parent> <child>
 - `link` is a boolean hard dependency.
 
 ```toml
-claimdag = { git = "https://github.com/HaoZeke/claimdag", tag = "v0.1.2" }
+claimdag = { git = "https://github.com/HaoZeke/claimdag", tag = "v0.1.3" }
 ```
 
 ## WorkGraph pane

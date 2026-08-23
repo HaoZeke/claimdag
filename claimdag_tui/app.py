@@ -1,4 +1,4 @@
-"""WorkGraph pane: Textual Tree over claimdag work.json.
+"""WorkGraph pane: Textual Tree over claimdag work.bin.
 
 Mutations go through the claimdag CLI. This process does not reimplement
 claim, complete, or unlink.
@@ -43,19 +43,28 @@ def default_actor() -> str:
 
 
 def load_nodes(directory: Path) -> list[dict[str, Any]]:
-    path = directory / "work.json"
-    if not path.is_file():
+    bin_name = os.environ.get("CLAIMDAG_BIN", "claimdag")
+    exe = shutil.which(bin_name)
+    if not exe:
         return []
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        proc = subprocess.run(
+            [exe, "--dir", str(directory), "list", "--json", "--all"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
         return []
-    if not isinstance(data, dict):
+    if proc.returncode != 0:
         return []
-    nodes = data.get("nodes") or []
-    if not isinstance(nodes, list):
+    try:
+        data = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError:
         return []
-    return [n for n in nodes if isinstance(n, dict) and n.get("id")]
+    if not isinstance(data, list):
+        return []
+    return [n for n in data if isinstance(n, dict) and n.get("id")]
 
 
 def node_id(node: dict[str, Any]) -> str:
@@ -278,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         "--dir",
         type=Path,
         default=None,
-        help="Directory that holds work.json (else CLAIMDAG_DIR or XDG_RUNTIME_DIR/claimdag)",
+        help="Directory that holds work.bin (else CLAIMDAG_DIR or XDG_RUNTIME_DIR/claimdag)",
     )
     parser.add_argument(
         "--dump",

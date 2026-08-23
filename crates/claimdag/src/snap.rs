@@ -1,4 +1,4 @@
-//! Unpacked Cap'n snapshot. Hosts mmap `work.bin`. `work.json` is load-only v0.
+//! Unpacked Cap'n snapshot. Hosts mmap `work.bin`.
 
 use std::fs::File;
 use std::path::Path;
@@ -12,7 +12,6 @@ use crate::graph::{WorkKind, WorkNode, WorkRole, WorkStatus, FORMAT_V1};
 use crate::id::WorkId;
 
 pub const SNAP_BIN: &str = "work.bin";
-pub const SNAP_JSON_V0: &str = "work.json";
 
 pub fn write_bin(
     dir: &Path,

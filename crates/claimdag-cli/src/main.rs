@@ -1,4 +1,4 @@
-//! claimdag command line over a directory that holds work.json.
+//! claimdag command line over a directory that holds work.bin.
 
 use std::path::PathBuf;
 
@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "claimdag", version, about = "CAS claim and complete on a DAG")]
 struct Cli {
-    /// Directory that holds work.bin (mmap Cap'n). work.json is v0 load-only.
+    /// Directory that holds work.bin (mmap Cap'n).
     #[arg(long, default_value = ".")]
     dir: PathBuf,
     #[command(subcommand)]

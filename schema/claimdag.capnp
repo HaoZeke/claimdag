@@ -1,6 +1,6 @@
 @0x88e4bd9dfa52efbf;
 
-# Unpacked snapshot. Hosts mmap work.bin; JSON work.json is load-only v0.
+# Unpacked snapshot. Hosts mmap work.bin.
 
 struct WorkId {
   hi @0 :UInt64;

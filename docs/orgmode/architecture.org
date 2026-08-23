@@ -2,12 +2,11 @@
 #+options: toc:nil num:nil
 
 One writer. Unpacked Cap'n on disk. Hosts mmap =work.bin=.
-=work.json= is load-only v0.
 
 * Law
 
 - The host process is the sole mutator.
-- This crate has no RPC surface. The schema is claimdag's.
+- The schema is claimdag's. This crate has no RPC surface.
 - Ids are 128-bit =WorkId=. Kind, status, and role are closed enums.
 - Summary is the only open text field.
 - Terminal status is sticky. =archive= is a flag, not a status.
@@ -24,7 +23,7 @@ One writer. Unpacked Cap'n on disk. Hosts mmap =work.bin=.
 * Disk
 
 - Write: atomic replace of =$dir/work.bin= (unpacked Cap'n).
-- Read: mmap =work.bin=; if missing, parse =work.json= (v0).
+- Read: mmap =work.bin=.
 - Default =list= / TUI: live nodes only (not terminal, not archived).
 
 * Not this crate
