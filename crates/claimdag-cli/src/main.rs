@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "claimdag", version, about = "CAS claim and complete on a DAG")]
 struct Cli {
-    /// Directory that holds work.json.
+    /// Directory that holds work.bin (mmap Cap'n). work.json is v0 load-only.
     #[arg(long, default_value = ".")]
     dir: PathBuf,
     #[command(subcommand)]
@@ -17,7 +17,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// List nodes in work.json, newest first. Default is live work only.
+    /// List nodes, newest first. Default is live work only.
     List {
         /// Include non-archived terminal nodes.
         #[arg(long)]
