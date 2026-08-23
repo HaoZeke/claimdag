@@ -28,6 +28,9 @@ enum Cmd {
         /// Every node, including archived terminals.
         #[arg(long)]
         all: bool,
+        /// Machine JSON (TUI and hosts). Default is text lines.
+        #[arg(long)]
+        json: bool,
     },
     /// Print one node by 32-hex id.
     Get { id: String },
@@ -99,6 +102,34 @@ fn parse_id(s: &str) -> Result<WorkId, String> {
     WorkId::from_hex(s).ok_or_else(|| format!("bad id {s}"))
 }
 
+fn print_list_json(nodes: &[&WorkNode]) -> Result<(), String> {
+    let rows: Vec<serde_json::Value> = nodes
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "id": n.id.to_hex(),
+                "kind": n.kind.as_str(),
+                "status": n.status.as_str(),
+                "role": n.role.as_str(),
+                "assignee": n.assignee.to_hex(),
+                "parent": n.parent.to_hex(),
+                "deps": n.deps.iter().map(|d| d.to_hex()).collect::<Vec<_>>(),
+                "cas_gen": n.cas_gen,
+                "created_unix": n.created_unix,
+                "updated_unix": n.updated_unix,
+                "finished_unix": n.finished_unix,
+                "summary": n.summary,
+                "archived": n.archived,
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::to_string(&rows).map_err(|e| e.to_string())?
+    );
+    Ok(())
+}
+
 fn print_list_line(n: &WorkNode) {
     let flag = if n.archived { "  archived" } else { "" };
     println!(
@@ -151,14 +182,20 @@ fn run() -> Result<(), String> {
             terminal,
             archived,
             all,
+            json,
         } => {
             let (show_terminal, show_archived) = if all {
                 (true, true)
             } else {
                 (terminal, archived)
             };
-            for n in g.list_view(show_terminal, show_archived) {
-                print_list_line(n);
+            let nodes = g.list_view(show_terminal, show_archived);
+            if json {
+                print_list_json(&nodes)?;
+            } else {
+                for n in nodes {
+                    print_list_line(n);
+                }
             }
         }
         Cmd::Get { id } => {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="claimdag">
+  <rect width="200" height="200" rx="36" fill="#0B0B0A"/>
+  <!-- edges -->
+  <line x1="64" y1="72" x2="136" y2="100" stroke="#F4F0E6" stroke-width="5" stroke-linecap="round"/>
+  <line x1="64" y1="72" x2="100" y2="148" stroke="#F4F0E6" stroke-width="5" stroke-linecap="round"/>
+  <line x1="136" y1="100" x2="100" y2="148" stroke="#F4F0E6" stroke-width="5" stroke-linecap="round"/>
+  <!-- nodes -->
+  <circle cx="64" cy="72" r="16" fill="#F4F0E6"/>
+  <circle cx="136" cy="100" r="16" fill="#F4F0E6"/>
+  <circle cx="100" cy="148" r="16" fill="#F4F0E6"/>
+  <!-- claim pin on the ready node -->
+  <circle cx="64" cy="72" r="7" fill="#E6A23C"/>
+</svg>

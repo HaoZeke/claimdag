@@ -1,8 +1,8 @@
 //! Claim/complete DAG. Host process is the sole mutator.
 //!
 //! Identity is [`WorkId`] (xxh3-128). Closed enums for kind/status/role.
-//! One open text field: summary. Snapshot is work.json next to the host
-//! state dir.
+//! One open text field: summary. Snapshot is unpacked Cap'n `work.bin`
+//! (mmap). `work.json` is load-only v0.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -12,8 +12,8 @@ use crate::id::{mint_work_id, WorkId};
 /// Snapshot format written by this crate. Loader also accepts unversioned v0.
 pub const FORMAT_V1: &str = "claimdag/v1";
 
-/// Snapshot filename under the host state dir.
-pub const SNAP_FILE: &str = "work.json";
+/// Snapshot filename under the host state dir (unpacked Cap'n, mmap).
+pub const SNAP_FILE: &str = crate::snap::SNAP_BIN;
 
 const MAX_WORK_NODES: usize = 4096;
 const MAX_LEDGER: usize = 8192;
@@ -639,9 +639,26 @@ impl WorkGraph {
         Ok(())
     }
 
-    /// Load `$dir/work.json`, or an empty graph when the file is missing.
+    /// Load `$dir/work.bin` (mmap Cap'n), else `$dir/work.json` (v0).
     pub fn load_dir(dir: &Path) -> Self {
-        let path = dir.join(SNAP_FILE);
+        if dir.join(crate::snap::SNAP_BIN).is_file() {
+            match crate::snap::read_bin(dir) {
+                Ok((next_seq, mint_seq, nodes)) => {
+                    let mut g = Self {
+                        nodes: HashMap::new(),
+                        ledger: VecDeque::new(),
+                        next_seq,
+                        mint_seq,
+                    };
+                    for node in nodes {
+                        g.nodes.insert(node.id, node);
+                    }
+                    return g;
+                }
+                Err(_) => {}
+            }
+        }
+        let path = dir.join(crate::snap::SNAP_JSON_V0);
         match std::fs::read(&path) {
             Ok(bytes) => match Self::from_snap_bytes(&bytes) {
                 Ok(g) => g,
@@ -651,29 +668,9 @@ impl WorkGraph {
         }
     }
 
-    /// Atomic replace of `$dir/work.json`.
+    /// Atomic replace of `$dir/work.bin` (unpacked Cap'n).
     pub fn save_dir(&self, dir: &Path) -> Result<(), String> {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        let path = dir.join(SNAP_FILE);
-        let tmp = dir.join("work.json.tmp");
-        let bytes = self.to_snap_bytes()?;
-        std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn to_snap_bytes(&self) -> Result<Vec<u8>, String> {
-        let snap = WorkSnap {
-            format: Some(FORMAT_V1.to_string()),
-            next_seq: self.next_seq,
-            mint_seq: self.mint_seq,
-            nodes: self
-                .list()
-                .into_iter()
-                .map(WorkNodeSnap::from_node)
-                .collect(),
-        };
-        serde_json::to_vec_pretty(&snap).map_err(|e| e.to_string())
+        crate::snap::write_bin(dir, self.next_seq, self.mint_seq, &self.list())
     }
 
     fn from_snap_bytes(bytes: &[u8]) -> Result<Self, String> {
@@ -720,24 +717,6 @@ struct WorkNodeSnap {
 }
 
 impl WorkNodeSnap {
-    fn from_node(n: &WorkNode) -> Self {
-        Self {
-            id: n.id.to_hex(),
-            kind: n.kind.as_str().into(),
-            status: n.status.as_str().into(),
-            role: n.role.as_str().into(),
-            assignee: n.assignee.to_hex(),
-            parent: n.parent.to_hex(),
-            deps: n.deps.iter().map(|d| d.to_hex()).collect(),
-            cas_gen: n.cas_gen,
-            created_unix: n.created_unix,
-            updated_unix: n.updated_unix,
-            finished_unix: n.finished_unix,
-            summary: n.summary.clone(),
-            archived: n.archived,
-        }
-    }
-
     fn into_node(self) -> Result<WorkNode, String> {
         let id = WorkId::from_hex(&self.id).ok_or("snap: bad id")?;
         let mut deps = Vec::with_capacity(self.deps.len());
@@ -1053,12 +1032,30 @@ mod tests {
         g.save_dir(&dir).unwrap();
         let loaded = WorkGraph::load_dir(&dir);
         assert!(loaded.get(a).unwrap().archived);
-        let raw = std::fs::read_to_string(dir.join(SNAP_FILE)).unwrap();
-        let mut val: serde_json::Value = serde_json::from_str(&raw).unwrap();
-        for node in val["nodes"].as_array_mut().unwrap() {
-            node.as_object_mut().unwrap().remove("archived");
-        }
-        std::fs::write(dir.join(SNAP_FILE), serde_json::to_vec_pretty(&val).unwrap()).unwrap();
+        let v0 = serde_json::json!({
+            "next_seq": 1,
+            "mint_seq": 1,
+            "nodes": [{
+                "id": a.to_hex(),
+                "kind": "task",
+                "status": "done",
+                "role": "unset",
+                "assignee": id(9).to_hex(),
+                "parent": WorkId::ZERO.to_hex(),
+                "deps": [],
+                "cas_gen": 1,
+                "created_unix": 1,
+                "updated_unix": 1,
+                "finished_unix": 1,
+                "summary": "done"
+            }]
+        });
+        std::fs::remove_file(dir.join(SNAP_FILE)).unwrap();
+        std::fs::write(
+            dir.join(crate::snap::SNAP_JSON_V0),
+            serde_json::to_vec_pretty(&v0).unwrap(),
+        )
+        .unwrap();
         let old = WorkGraph::load_dir(&dir);
         assert!(!old.get(a).unwrap().archived);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1084,12 +1081,35 @@ mod tests {
         let a = id(7);
         upsert_ready(&mut g, a, "v1");
         g.save_dir(&dir).unwrap();
-        let raw = std::fs::read_to_string(dir.join(SNAP_FILE)).unwrap();
-        assert!(raw.contains("claimdag/v1"), "{raw}");
-        let v0 = raw.replacen("\"format\": \"claimdag/v1\",\n", "", 1);
-        std::fs::write(dir.join(SNAP_FILE), v0).unwrap();
+        assert!(dir.join(SNAP_FILE).is_file());
         let loaded = WorkGraph::load_dir(&dir);
         assert_eq!(loaded.get(a).unwrap().summary, "v1");
+        let v0 = serde_json::json!({
+            "next_seq": 1,
+            "mint_seq": 1,
+            "nodes": [{
+                "id": a.to_hex(),
+                "kind": "task",
+                "status": "ready",
+                "role": "unset",
+                "assignee": id(9).to_hex(),
+                "parent": WorkId::ZERO.to_hex(),
+                "deps": [],
+                "cas_gen": 1,
+                "created_unix": 1,
+                "updated_unix": 1,
+                "finished_unix": 0,
+                "summary": "v1"
+            }]
+        });
+        std::fs::remove_file(dir.join(SNAP_FILE)).unwrap();
+        std::fs::write(
+            dir.join(crate::snap::SNAP_JSON_V0),
+            serde_json::to_vec_pretty(&v0).unwrap(),
+        )
+        .unwrap();
+        let from_json = WorkGraph::load_dir(&dir);
+        assert_eq!(from_json.get(a).unwrap().summary, "v1");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
