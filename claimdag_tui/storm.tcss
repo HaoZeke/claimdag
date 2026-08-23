@@ -1,20 +1,7 @@
-/* Tokyo Night Storm. Resize is layout, not padded SGR rows. */
-Screen {
-    background: #24283b;
-    color: #c0caf5;
-}
-
-Header {
-    background: #1f2335;
-    color: #7aa2f7;
-}
-
-Footer {
-    background: #1f2335;
-    color: #a9b1d6;
-}
-
+/* WorkGraph widgets. Shared tokens: tokyo_night_storm.tcss */
 Tree {
+    height: 1fr;
+    width: 1fr;
     background: #24283b;
     color: #c0caf5;
 }

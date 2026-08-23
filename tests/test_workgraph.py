@@ -1,0 +1,138 @@
+"""WorkGraph pane: fixture tree, CLI bindings, Tokyo Night Storm tokens."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from pathlib import Path
+
+import textual
+from textual.widgets import Tree
+
+from claimdag_tui.theme import CSS_FILES
+from claimdag_tui.app import (
+    WorkGraphApp,
+    default_dir,
+    dump_forest,
+    load_nodes,
+    main,
+    parent_tree,
+)
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+def test_textual_imports() -> None:
+    assert textual.__version__
+
+
+def test_load_fixture_nodes() -> None:
+    nodes = load_nodes(FIXTURE_DIR)
+    assert [n["summary"] for n in nodes] == [
+        "land the adapter",
+        "write the tree",
+        "verify the tree",
+    ]
+
+
+def test_parent_tree_of_fixture() -> None:
+    by_id, children, roots = parent_tree(load_nodes(FIXTURE_DIR))
+    assert roots == ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    assert children["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] == [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "cccccccccccccccccccccccccccccccc",
+    ]
+    assert by_id["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]["summary"] == "write the tree"
+
+
+def test_dump_forest_fixture() -> None:
+    text = dump_forest(load_nodes(FIXTURE_DIR))
+    assert text == (
+        "ready  land the adapter\n"
+        "  todo  write the tree  deps=1\n"
+        "  todo  verify the tree  deps=1\n"
+    )
+
+
+def test_dump_cli_writes_fixture_tree(capsys) -> None:
+    assert main(["--dir", str(FIXTURE_DIR), "--dump"]) == 0
+    out = capsys.readouterr().out
+    assert "land the adapter" in out
+    assert "write the tree" in out
+    assert "verify the tree" in out
+
+
+def test_default_dir_claimdag_then_xdg(monkeypatch, tmp_path) -> None:
+    claimed = tmp_path / "claimed"
+    monkeypatch.setenv("CLAIMDAG_DIR", str(claimed))
+    assert default_dir() == claimed
+    monkeypatch.delenv("CLAIMDAG_DIR")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert default_dir() == tmp_path / "claimdag"
+
+
+def test_storm_tokens() -> None:
+    shared = CSS_FILES[0].read_text(encoding="utf-8")
+    widgets = CSS_FILES[1].read_text(encoding="utf-8")
+    assert CSS_FILES[0].name == "tokyo_night_storm.tcss"
+    assert "#24283b" in shared
+    assert "(36, 40, 59)" in shared
+    assert "#c0caf5" in shared
+    assert "#7aa2f7" in shared
+    assert "$panel:" not in shared
+    assert "height: 1fr" in widgets
+
+
+def test_app_tree_renders_fixture() -> None:
+    app = WorkGraphApp(directory=FIXTURE_DIR)
+
+    async def run() -> list[str]:
+        async with app.run_test() as _pilot:
+            tree = app.query_one(Tree)
+            root_kids = list(tree.root.children)
+            assert root_kids
+            labels = [str(root_kids[0].label)]
+            labels.extend(str(child.label) for child in root_kids[0].children)
+            return labels
+
+    labels = asyncio.run(run())
+    assert any("land the adapter" in lab for lab in labels)
+    assert any("write the tree" in lab for lab in labels)
+    assert any("verify the tree" in lab for lab in labels)
+
+
+def test_claim_complete_unlink_call_cli(monkeypatch, tmp_path) -> None:
+    work = tmp_path / "work.json"
+    work.write_text((FIXTURE_DIR / "work.json").read_text(encoding="utf-8"))
+    stub = tmp_path / "claimdag"
+    log = tmp_path / "cli.log"
+    stub.write_text(
+        "#!/bin/sh\n"
+        f'{{ printf "%s " "$@"; printf "\\n"; }} >> "{log}"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("CLAIMDAG_BIN", "claimdag")
+    monkeypatch.setenv("CLAIMDAG_ACTOR", "11111111111111111111111111111111")
+
+    app = WorkGraphApp(directory=tmp_path)
+
+    async def run() -> None:
+        async with app.run_test() as pilot:
+            tree = app.query_one(Tree)
+            goal = tree.root.children[0]
+            child = goal.children[0]
+            tree.move_cursor(child)
+            await pilot.press("c")
+            await pilot.press("d")
+            await pilot.press("u")
+
+    asyncio.run(run())
+    recorded = [line.rstrip() for line in log.read_text(encoding="utf-8").splitlines()]
+    child_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    parent_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    actor = "11111111111111111111111111111111"
+    assert f"--dir {tmp_path} claim {child_id} --assignee {actor}" in recorded
+    assert f"--dir {tmp_path} complete {child_id} --status done --actor {actor}" in recorded
+    assert f"--dir {tmp_path} unlink {parent_id} {child_id} --actor {actor}" in recorded

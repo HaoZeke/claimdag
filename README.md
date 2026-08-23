@@ -22,6 +22,22 @@ text field. `claim` is compare-and-swap on `gen` (omit `--gen` to ignore).
 Terminal status is sticky. `link` is a boolean hard dependency; `unlink`
 drops it. `upsert` accepts `--role` and `--parent`.
 
+## WorkGraph pane
+
+Textual tree of `$dir/work.json`. Mutations call `claimdag`; this process
+does not reimplement claim, complete, or unlink.
+
+```console
+$ pip install -e .
+$ CLAIMDAG_DIR=/var/lib/seat claimdag-tui
+$ claimdag-tui --dir /var/lib/seat --dump
+```
+
+Directory is `$CLAIMDAG_DIR`, else `$XDG_RUNTIME_DIR/claimdag`. Bindings: `c`
+claim, `d` complete, `u` unlink, `r` refresh. Assignee is `$CLAIMDAG_ACTOR`
+(32 hex) or a hash of `user@host`. Theme is Tokyo Night Storm
+(`#24283b` / `#c0caf5` / `#7aa2f7`).
+
 ```toml
 claimdag = { git = "https://github.com/HaoZeke/claimdag", tag = "v0.1.0" }
 ```
