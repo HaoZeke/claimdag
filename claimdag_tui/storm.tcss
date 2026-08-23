@@ -1,5 +1,5 @@
 /* WorkGraph widgets. Shared tokens: tokyo_night_storm.tcss */
-/* Do not bind $panel: Textual default CSS uses hatch: right $panel. */
+/* Do not rebind Textual hatch tokens. */
 
 Screen {
     layout: vertical;
